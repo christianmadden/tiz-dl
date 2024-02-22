@@ -61,6 +61,13 @@ def extract_video_url(url):
         if query_v:
             # Return the first 'v' parameter value if available
             return query_v[0]
+    else:
+        # If no iframe found in video-wrapper, check for YouTube embedded video
+        youtube_video = soup.find('iframe', src=lambda x: x and "youtube.com" in x)
+        if youtube_video and 'src' in youtube_video.attrs:
+            print("Note: A YouTube embedded video was found instead of a direct video file.")
+            return youtube_video['src']
+            
     return None
 
 def main():
@@ -84,7 +91,10 @@ def main():
     
     if video_url:
         print(f"Video URL found: {video_url}")
-        download_video(video_url, args.destination)
+        if "youtube.com" in video_url:
+            print("This is a YouTube video URL, download skipped.")
+        else:
+            download_video(video_url, args.destination)
     else:
         print("No video URL found or the video URL does not contain a direct video link.")
 
