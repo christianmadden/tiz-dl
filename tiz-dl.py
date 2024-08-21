@@ -4,6 +4,7 @@ import urllib.parse as urlparse
 from urllib.parse import parse_qs, urlsplit
 import argparse
 import os
+import json
 from requests.exceptions import RequestException
 from tqdm import tqdm
 
@@ -45,40 +46,41 @@ def extract_video_url(url):
     # Parse the HTML content
     soup = BeautifulSoup(response.text, 'html.parser')
     
-    # Find the element with class 'video-wrapper'
+    # Check for video-wrapper iframe
     video_wrapper = soup.find(class_='video-wrapper')
-    
-    # Find the first iframe inside that element
     iframe = video_wrapper.find('iframe') if video_wrapper else None
     
     if iframe and 'src' in iframe.attrs:
         src = iframe['src']
-        
-        # Parse the src URL to get the querystring value for 'v'
         parsed_src = urlparse.urlparse(src)
         query_v = parse_qs(parsed_src.query).get('v')
         
         if query_v:
-            # Return the first 'v' parameter value if available
             return query_v[0]
-    else:
-        # If no iframe found in video-wrapper, check for YouTube embedded video
-        youtube_video = soup.find('iframe', src=lambda x: x and "youtube.com" in x)
-        if youtube_video and 'src' in youtube_video.attrs:
-            print("Note: A YouTube embedded video was found instead of a direct video file.")
-            return youtube_video['src']
-            
+    
+    # Check for YouTube embedded video
+    youtube_video = soup.find('iframe', src=lambda x: x and "youtube.com" in x)
+    if youtube_video and 'src' in youtube_video.attrs:
+        print("Note: A YouTube embedded video was found instead of a direct video file.")
+        return youtube_video['src']
+    
+    # Check for Flowplayer embedded video
+    flowplayer_div = soup.find('div', class_='flowplayer')
+    if flowplayer_div and 'data-item' in flowplayer_div.attrs:
+        data_item = flowplayer_div['data-item']
+        data = json.loads(data_item)
+        
+        if 'sources' in data and data['sources']:
+            video_url = data['sources'][0]['src']
+            print(f"Flowplayer video found: {video_url}")
+            return video_url
+    
     return None
 
 def main():
-    # Create the parser
     parser = argparse.ArgumentParser(description="Extract and download video URL from a webpage.")
-    
-    # Add the arguments
     parser.add_argument('--source', '-s', type=str, required=True, help="The URL of the webpage to parse.")
     parser.add_argument('--destination', '-d', type=str, default=os.getcwd(), help="The destination directory to download the video. Default is the current directory.")
-    
-    # Parse the command line arguments
     args = parser.parse_args()
     
     # Ensure destination directory exists

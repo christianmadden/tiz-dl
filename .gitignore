@@ -1,3 +1,8 @@
+# Ignore any video files 
+*.mp4
+*.mov
+*.mkv
+
 # OS generated files #
 ######################
 .DS_Store
