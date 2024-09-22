@@ -7,6 +7,7 @@ import os
 import json
 from requests.exceptions import RequestException
 from tqdm import tqdm
+from pytube import YouTube
 
 def download_video(url, destination):
     try:
@@ -39,6 +40,16 @@ def download_video(url, destination):
     except RequestException as e:
         print(f"Request failed: {e}")
 
+def download_youtube_video(video_url, destination):
+    try:
+        yt = YouTube(video_url)
+        print(f"Downloading YouTube video: {yt.title}")
+        stream = yt.streams.get_highest_resolution()
+        stream.download(output_path=destination)
+        print(f"Download completed: {stream.default_filename} in {destination}")
+    except Exception as e:
+        print(f"Failed to download YouTube video: {e}")
+
 def extract_video_url(url):
     # Send a GET request to the URL
     response = requests.get(url)
@@ -61,7 +72,7 @@ def extract_video_url(url):
     # Check for YouTube embedded video
     youtube_video = soup.find('iframe', src=lambda x: x and "youtube.com" in x)
     if youtube_video and 'src' in youtube_video.attrs:
-        print("Note: A YouTube embedded video was found instead of a direct video file.")
+        print("Note: A YouTube embedded video was found.")
         return youtube_video['src']
     
     # Check for Flowplayer embedded video
@@ -93,8 +104,8 @@ def main():
     
     if video_url:
         print(f"Video URL found: {video_url}")
-        if "youtube.com" in video_url:
-            print("This is a YouTube video URL, download skipped.")
+        if "youtube.com" in video_url or "youtu.be" in video_url:
+            download_youtube_video(video_url, args.destination)
         else:
             download_video(video_url, args.destination)
     else:
