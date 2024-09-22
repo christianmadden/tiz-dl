@@ -90,10 +90,14 @@ def extract_video_url(url):
 
 def main():
     parser = argparse.ArgumentParser(description="Extract and download video URL from a webpage.")
-    parser.add_argument('--source', '-s', type=str, required=True, help="The URL of the webpage to parse.")
+    parser.add_argument('--source', '-s', type=str, help="The URL of the webpage to parse.")
     parser.add_argument('--destination', '-d', type=str, default=os.getcwd(), help="The destination directory to download the video. Default is the current directory.")
     args = parser.parse_args()
     
+    # Prompt for URL if not provided as argument
+    if not args.source:
+        args.source = input("Please enter the URL of the webpage: ")
+
     # Ensure destination directory exists
     if not os.path.isdir(args.destination):
         print(f"Creating directory: {args.destination}")
