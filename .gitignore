@@ -3,6 +3,10 @@
 *.mov
 *.mkv
 
+# Ignore venv 
+tiz-venv/*
+
+
 # OS generated files #
 ######################
 .DS_Store
