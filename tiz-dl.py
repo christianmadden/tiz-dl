@@ -42,17 +42,34 @@ def download_video(url, destination):
 
 def download_youtube_video(video_url, destination):
     """
-    Downloads a YouTube video using yt-dlp with authentication.
+    Downloads a YouTube video using yt-dlp with authentication via cookies.txt.
     """
     try:
+        # Get the script's directory and set the cookies.txt path
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        cookies_path = os.path.join(script_dir, "cookies.txt")
+
+        print(f"Current working directory: {os.getcwd()}")
+        print(f"Looking for cookies.txt at: {cookies_path}")
+
+        # Check if cookies.txt exists
+        if not os.path.exists(cookies_path):
+            print("Error: cookies.txt file not found in script directory.")
+            print("Please export your YouTube cookies and place them in the same folder as this script.")
+            return
+
         ydl_opts = {
             'outtmpl': os.path.join(destination, '%(title)s.%(ext)s'),
-            'format': 'bestvideo+bestaudio/best',
-            'merge_output_format': 'mp4',
+            'format': 'bestvideo*+bestaudio/best',
             'noplaylist': True,
-            'progress_hooks': [progress_hook],
-            'cookies-from-browser': 'chrome',  # Change to 'firefox' or 'edge' if needed
+            'progress_hooks': [progress_hook],  # Ensure function is referenced correctly
+            'cookies': cookies_path
         }
+
+        # DEBUGGING: Print out exactly what yt-dlp is seeing
+        ydl_opts_debug = {k: v if k != 'progress_hooks' else 'Function Reference' for k, v in ydl_opts.items()}
+        print(f"Using yt-dlp with the following options:")
+        print(json.dumps(ydl_opts_debug, indent=4))
 
         print(f"Downloading YouTube video from: {video_url}")
 
