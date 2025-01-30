@@ -7,7 +7,7 @@ import os
 import json
 from requests.exceptions import RequestException
 from tqdm import tqdm
-from pytube import YouTube
+import yt_dlp
 
 def download_video(url, destination):
     try:
@@ -41,14 +41,37 @@ def download_video(url, destination):
         print(f"Request failed: {e}")
 
 def download_youtube_video(video_url, destination):
+    """
+    Downloads a YouTube video using yt-dlp with authentication.
+    """
     try:
-        yt = YouTube(video_url)
-        print(f"Downloading YouTube video: {yt.title}")
-        stream = yt.streams.get_highest_resolution()
-        stream.download(output_path=destination)
-        print(f"Download completed: {stream.default_filename} in {destination}")
+        ydl_opts = {
+            'outtmpl': os.path.join(destination, '%(title)s.%(ext)s'),
+            'format': 'bestvideo+bestaudio/best',
+            'merge_output_format': 'mp4',
+            'noplaylist': True,
+            'progress_hooks': [progress_hook],
+            'cookies-from-browser': 'chrome',  # Change to 'firefox' or 'edge' if needed
+        }
+
+        print(f"Downloading YouTube video from: {video_url}")
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([video_url])
+
+        print(f"Download completed successfully!")
+
     except Exception as e:
         print(f"Failed to download YouTube video: {e}")
+
+def progress_hook(d):
+    """
+    Progress hook function for yt-dlp.
+    """
+    if d['status'] == 'downloading':
+        print(f"\rDownloading: {d['_percent_str']} ({d['_eta_str']} remaining)", end='')
+    elif d['status'] == 'finished':
+        print("\nDownload complete!")
 
 def extract_video_url(url):
     # Send a GET request to the URL
