@@ -181,6 +181,10 @@ def download_youtube_video(video_url, destination, cookies_file=None, quality='b
         ])
         
         print(f"Running command: {' '.join(cmd)}")
+        print(f"\033[92mVideo URL found ✅\033[0m")
+        print(f"\033[94mVideo type:\033[0m YouTube")
+        print(f"\033[94mFilename:\033[0m %(title)s.%(ext)s")
+        print(f"\033[94myt-dlp command:\033[0m {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:
@@ -492,6 +496,13 @@ def main():
             print("Detected as YouTube video, using YouTube download method")
             download_youtube_video(video_url, args.destination, args.cookies, args.quality)
         elif video_url.endswith(('.mp4', '.mkv', '.mov', '.webm', '.avi')):
+            from urllib.parse import unquote, urlsplit
+            filename = os.path.basename(urlsplit(video_url).path)
+            filename = unquote(filename)
+            filename = filename.replace(' ', '_')
+            print(f"\033[92mVideo URL found ✅\033[0m")
+            print(f"\033[94mVideo type:\033[0m Direct")
+            print(f"\033[94mFilename:\033[0m {filename}")
             print("Detected as direct media file, using direct download method")
             download_video(video_url, args.destination)
         else:
