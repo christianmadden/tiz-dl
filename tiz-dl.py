@@ -168,14 +168,14 @@ def download_youtube_video(video_url, destination, cookies_file=None, quality='b
         
         # Set format based on quality parameter
         if quality == 'best':
-            cmd.extend(["-f", "bestvideo*+bestaudio/best"])
+            cmd.extend(["-f", '"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"'])
         elif quality == 'audio':
-            cmd.extend(["-f", "bestaudio", "-x", "--audio-format", "mp3"])
+            cmd.extend(["-f", '"bestaudio"', "-x", "--audio-format", "mp3"])
         else:
             cmd.extend(["-f", quality])
             
         cmd.extend([
-            "-o", os.path.join(destination, "%(title)s.%(ext)s"),
+            "-o", f'"{os.path.join(destination, "%(title)s.%(ext)s")}"',
             "--no-playlist",
             video_url
         ])
@@ -185,26 +185,25 @@ def download_youtube_video(video_url, destination, cookies_file=None, quality='b
         print(f"\033[94mVideo type:\033[0m YouTube")
         print(f"\033[94mFilename:\033[0m %(title)s.%(ext)s")
         print(f"\033[94myt-dlp command:\033[0m {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, stdout=sys.stdout, stderr=sys.stderr)
         
         if result.returncode == 0:
             print(f"Download completed successfully!")
             return True
         else:
-            print(f"YouTube download failed with error:")
-            print(result.stderr)
+            print("YouTube download failed.")
             
             # If cookies failed, try with --cookies-from-browser as fallback
-            if cookies_path and "Sign in to confirm you're not a bot" in result.stderr:
+            if cookies_path:
                 print("\nTrying alternative approach with browser cookies...")
                 # Try to find an installed browser
                 browsers = ["chrome", "firefox", "edge", "safari", "brave", "opera"]
                 for browser in browsers:
                     try:
-                        alt_cmd = ["yt-dlp", "--cookies-from-browser", browser, "-f", "bestvideo*+bestaudio/best",
-                                "-o", os.path.join(destination, "%(title)s.%(ext)s"), video_url]
+                        alt_cmd = ["yt-dlp", "--cookies-from-browser", browser, "-f", '"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"',
+                                   "-o", f'"{os.path.join(destination, "%(title)s.%(ext)s")}"', video_url]
                         print(f"Running: {' '.join(alt_cmd)}")
-                        alt_result = subprocess.run(alt_cmd, check=False)
+                        alt_result = subprocess.run(alt_cmd, stdout=sys.stdout, stderr=sys.stderr)
                         if alt_result.returncode == 0:
                             print(f"Download successful using {browser} cookies!")
                             return True
