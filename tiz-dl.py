@@ -100,6 +100,14 @@ class VideoDownloader:
         
         return None
     
+    def format_size(self, bytes_size):
+        """Format bytes to human readable size"""
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if bytes_size < 1024.0:
+                return f"{bytes_size:.1f} {unit}"
+            bytes_size /= 1024.0
+        return f"{bytes_size:.1f} TB"
+    
     def download_direct_video(self, url):
         """Download video file directly"""
         try:
@@ -125,23 +133,41 @@ class VideoDownloader:
                     self.log("Download cancelled")
                     return False
             
-            # Download with progress bar
+            # Show file info
+            if file_size > 0:
+                self.log(f"File size: {self.format_size(file_size)}")
+            
+            # Download with enhanced progress bar
             response = self.session.get(url, stream=True)
             response.raise_for_status()
             
-            with tqdm(
+            # Enhanced progress bar with speed and ETA
+            progress_bar = tqdm(
                 total=file_size,
                 unit='B',
                 unit_scale=True,
-                desc=f"Downloading {file_name}"
-            ) as pbar:
-                with open(file_path, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-                            pbar.update(len(chunk))
+                unit_divisor=1024,
+                desc=f"📥 {file_name[:30]}{'...' if len(file_name) > 30 else ''}",
+                bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]',
+                colour='green'
+            )
             
-            self.log(f"Downloaded: {file_path}", 'success')
+            downloaded = 0
+            chunk_size = 8192
+            
+            with open(file_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        progress_bar.update(len(chunk))
+            
+            progress_bar.close()
+            
+            # Final summary
+            avg_speed = downloaded / progress_bar.format_dict['elapsed'] if progress_bar.format_dict['elapsed'] > 0 else 0
+            self.log(f"✅ Download completed: {file_path}")
+            self.log(f"📊 Final size: {self.format_size(downloaded)} | Average speed: {self.format_size(avg_speed)}/s")
             return True
             
         except RequestException as e:
@@ -152,7 +178,7 @@ class VideoDownloader:
         """Download YouTube video using yt-dlp"""
         try:
             url = self.normalize_youtube_url(url)
-            self.log(f"Downloading YouTube video: {url}")
+            self.log(f"🎬 Downloading YouTube video: {url}")
             
             # Build yt-dlp command
             cmd = ['yt-dlp']
@@ -178,32 +204,63 @@ class VideoDownloader:
             if quality == 'audio':
                 cmd.extend(['-x', '--audio-format', 'mp3'])
             
-            # Output template and other options
+            # Output template and enhanced progress options
             output_template = str(self.destination / '%(title)s.%(ext)s')
             cmd.extend([
                 '-o', output_template,
                 '--no-playlist',
                 '--geo-bypass',
                 '--extractor-retries', '3',
+                '--progress',  # Enable progress reporting
+                '--newline',   # Each progress line on new line
+                '--console-title',  # Update console title with progress
                 url
             ])
             
-            self.log(f"Running: {' '.join(cmd[:-1])} [URL]", 'verbose')
+            if self.verbose:
+                self.log(f"🔧 Command: {' '.join(cmd[:-1])} [URL]", 'verbose')
             
-            # Execute command
+            # Show what we're about to download
+            info_cmd = cmd[:-1] + ['--dump-json', '--no-download', url]
+            try:
+                info_result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=30)
+                if info_result.returncode == 0:
+                    info = json.loads(info_result.stdout)
+                    title = info.get('title', 'Unknown')
+                    duration = info.get('duration', 0)
+                    filesize = info.get('filesize') or info.get('filesize_approx', 0)
+                    
+                    self.log(f"📹 Title: {title[:60]}{'...' if len(title) > 60 else ''}")
+                    if duration:
+                        mins, secs = divmod(duration, 60)
+                        self.log(f"⏱️  Duration: {int(mins):02d}:{int(secs):02d}")
+                    if filesize:
+                        self.log(f"📦 Estimated size: {self.format_size(filesize)}")
+            except (subprocess.TimeoutExpired, json.JSONDecodeError, KeyError):
+                pass  # Continue without video info if it fails
+            
+            # Execute download command
+            self.log("🚀 Starting download...")
             result = subprocess.run(
                 cmd,
-                capture_output=not self.verbose,
-                text=True
+                stdout=subprocess.PIPE if not self.verbose else None,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
             )
             
             if result.returncode == 0:
-                self.log("YouTube download completed", 'success')
+                self.log("✅ YouTube download completed successfully!", 'success')
                 return True
             else:
-                self.log("YouTube download failed", 'error')
-                if not self.verbose and result.stderr:
-                    self.log(f"Error: {result.stderr}", 'error')
+                self.log("❌ YouTube download failed", 'error')
+                if result.stdout and not self.verbose:
+                    # Show last few lines of output for debugging
+                    output_lines = result.stdout.strip().split('\n')
+                    error_lines = [line for line in output_lines[-5:] if 'ERROR' in line.upper()]
+                    if error_lines:
+                        self.log(f"Last error: {error_lines[-1]}", 'error')
                 
                 # Try browser cookies as fallback
                 return self._try_browser_cookies(url, output_template)
@@ -214,27 +271,32 @@ class VideoDownloader:
     
     def _try_browser_cookies(self, url, output_template):
         """Fallback: try downloading with browser cookies"""
-        self.log("Trying browser cookies as fallback...", 'verbose')
+        self.log("🔄 Trying browser cookies as fallback...", 'verbose')
         
         browsers = ['chrome', 'firefox', 'edge', 'safari']
         for browser in browsers:
             try:
+                self.log(f"🌐 Attempting with {browser} cookies...", 'verbose')
                 cmd = [
                     'yt-dlp',
                     '--cookies-from-browser', browser,
                     '-f', 'best[ext=mp4]/best',
                     '-o', output_template,
+                    '--progress',
+                    '--newline',
                     url
                 ]
                 
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode == 0:
-                    self.log(f"Success using {browser} cookies", 'success')
+                    self.log(f"✅ Success using {browser} cookies!", 'success')
                     return True
                     
-            except Exception:
+            except Exception as e:
+                self.log(f"Failed with {browser}: {e}", 'verbose')
                 continue
         
+        self.log("❌ All browser cookie attempts failed", 'error')
         return False
     
     def extract_tiz_cycling_url(self, url, html_content):
@@ -342,28 +404,29 @@ class VideoDownloader:
     
     def download(self, url, quality='best'):
         """Main download method"""
-        self.log(f"Processing URL: {url}")
+        self.log(f"🎯 Processing URL: {url}")
         
         # Extract video URL if needed
         video_url = self.extract_video_url(url)
         if not video_url:
-            self.log("No video URL found", 'error')
+            self.log("❌ No video URL found", 'error')
             return False
         
-        self.log(f"Video URL: {video_url}", 'verbose')
+        if video_url != url:
+            self.log(f"🔍 Extracted video URL: {video_url}", 'verbose')
         
         # Choose download method
         if self.is_youtube_url(video_url):
-            self.log("Detected: YouTube video")
+            self.log("🎬 Detected: YouTube video")
             return self.download_youtube_video(video_url, quality)
         elif self.is_direct_video_url(video_url):
-            self.log("Detected: Direct video file")
+            self.log("📁 Detected: Direct video file")
             return self.download_direct_video(video_url)
         else:
             # Try YouTube first, then direct download
-            self.log("Unknown video type, trying YouTube method first")
+            self.log("❓ Unknown video type, trying YouTube method first")
             if not self.download_youtube_video(video_url, quality):
-                self.log("Falling back to direct download")
+                self.log("🔄 Falling back to direct download")
                 return self.download_direct_video(video_url)
             return True
 
