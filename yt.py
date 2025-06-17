@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Simple YouTube Downloader
-Usage: python yt.py <youtube-url>
+Usage: python yt.py <youtube-url> [--quality 1080p|2160p|4k]
 """
 
 import sys
@@ -23,6 +23,50 @@ def find_cookies_file():
             return str(location)
     
     return None
+
+
+def normalize_quality(quality_input):
+    """Normalize quality input to standard height value"""
+    if not quality_input:
+        return 1080  # Default
+    
+    quality_lower = quality_input.lower().strip()
+    
+    # Handle various formats
+    quality_map = {
+        '1080': 1080,
+        '1080p': 1080,
+        '2160': 2160,
+        '2160p': 2160,
+        '4k': 2160,
+        'uhd': 2160,  # Ultra HD
+        'fhd': 1080,  # Full HD
+        'hd': 1080    # HD
+    }
+    
+    if quality_lower in quality_map:
+        return quality_map[quality_lower]
+    
+    # Try to extract numbers
+    import re
+    numbers = re.findall(r'\d+', quality_input)
+    if numbers:
+        height = int(numbers[0])
+        if height in [1080, 2160]:
+            return height
+    
+    # Invalid quality, return default with warning
+    print(f"⚠️  Invalid quality '{quality_input}', using 1080p as default")
+    return 1080
+
+
+def get_quality_display_name(height):
+    """Get friendly display name for quality"""
+    quality_names = {
+        1080: "1080p (Full HD)",
+        2160: "2160p (4K/UHD)"
+    }
+    return quality_names.get(height, f"{height}p")
 
 
 def list_available_formats(url, verbose=False):
@@ -99,9 +143,11 @@ def check_existing_file(url):
     return True  # No existing file found
 
 
-def download_youtube_video(url, verbose=False):
-    """Download YouTube video using yt-dlp"""
+def download_youtube_video(url, quality_height=1080, verbose=False):
+    """Download YouTube video using yt-dlp with specified quality"""
+    quality_name = get_quality_display_name(quality_height)
     print(f"🎬 Processing: {url}")
+    print(f"🎯 Target quality: {quality_name}")
     
     # First, list available formats for debugging (only if verbose)
     if verbose and not list_available_formats(url, verbose):
@@ -113,10 +159,18 @@ def download_youtube_video(url, verbose=False):
     
     if verbose:
         print("\n" + "="*50)
-        print("🚀 Starting download with 1080p+ requirement...")
+        print(f"🚀 Starting download with {quality_name} requirement...")
     
     # Build yt-dlp command
     cmd = ['yt-dlp']
+    
+    # Add anti-throttling and anti-bot measures
+    cmd.extend([
+        '--extractor-args', 'youtube:player-client=android,web',
+        '--user-agent', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        '--sleep-interval', '1',
+        '--max-sleep-interval', '3'
+    ])
     
     # Add cookies if available
     cookies_path = find_cookies_file()
@@ -125,18 +179,26 @@ def download_youtube_video(url, verbose=False):
         if verbose:
             print("🍪 Using cookies file")
     
-    # Format and output settings - only 1080p or higher
-    # Use + to combine separate video and audio streams
+    # Correct format selection based on research
+    if quality_height == 2160:
+        # For 4K: Try exact 2160p first, then any 2160p+, then best available
+        format_string = 'bestvideo[height=2160]+bestaudio/bestvideo[height>=2160]+bestaudio/bestvideo[height>=1440]+bestaudio/bestvideo+bestaudio'
+    else:
+        # For 1080p: Try exact 1080p first, then any 1080p+, then best available  
+        format_string = 'bestvideo[height=1080]+bestaudio/bestvideo[height>=1080]+bestaudio/bestvideo[height>=720]+bestaudio/bestvideo+bestaudio'
+    
     cmd.extend([
-        '-f', 'bestvideo[height>=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height>=1080]+bestaudio/best[height>=1080]',
+        '-f', format_string,
         '-o', '%(title)s.%(ext)s',   # Save with video title as filename
         '--no-playlist',             # Only download single video
+        '--merge-output-format', 'mp4',  # Ensure final file is mp4
     ])
     
     # Add verbose flag only if requested
     if verbose:
         cmd.append('--verbose')
-        print(f"🔧 Format filter: bestvideo[height>=1080][ext=mp4]+bestaudio[ext=m4a] (combines video+audio)")
+        print(f"🔧 Format filter: {format_string}")
+        print(f"🔧 Using Android + Web player clients to bypass restrictions")
     
     cmd.append(url)
     
@@ -144,13 +206,64 @@ def download_youtube_video(url, verbose=False):
     try:
         result = subprocess.run(cmd)
         if result.returncode == 0:
-            print("✅ Download completed!")
+            print("✅ Download completed! *Magnifique!*")
             return True
         else:
-            print("❌ Download failed - likely no 1080p+ formats available")
+            print(f"❌ First attempt failed. Trying alternative method...")
+            
+            # Fallback: Try with different player client and simpler format selection
             if verbose:
-                print("💡 Try updating yt-dlp: pip install --upgrade yt-dlp")
-            return False
+                print("🔄 Attempting fallback with alternative settings...")
+            
+            fallback_cmd = ['yt-dlp']
+            
+            # More aggressive anti-bot measures
+            fallback_cmd.extend([
+                '--extractor-args', 'youtube:player-client=android',
+                '--user-agent', 'com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip',
+                '--sleep-interval', '2',
+                '--max-sleep-interval', '5',
+                '--no-check-certificate'
+            ])
+            
+            # Add cookies if available
+            if cookies_path:
+                fallback_cmd.extend(['--cookies', cookies_path])
+            
+            # Simpler format selection for fallback - much more permissive
+            if quality_height == 2160:
+                fallback_format = f'best[height>={quality_height}]/bestvideo[height>={quality_height}]+bestaudio/best[height>=1440]/best'
+            else:
+                fallback_format = f'best[height>={quality_height}]/bestvideo[height>={quality_height}]+bestaudio/best[height>=720]/best'
+            
+            fallback_cmd.extend([
+                '-f', fallback_format,
+                '-o', '%(title)s.%(ext)s',
+                '--no-playlist',
+                '--merge-output-format', 'mp4',
+            ])
+            
+            if verbose:
+                fallback_cmd.append('--verbose')
+                print(f"🔧 Fallback format: {fallback_format}")
+            
+            fallback_cmd.append(url)
+            
+            # Try the fallback
+            fallback_result = subprocess.run(fallback_cmd)
+            if fallback_result.returncode == 0:
+                print("✅ Fallback download completed! *Parfait!*")
+                return True
+            else:
+                print(f"❌ Both attempts failed - no {quality_name} formats available")
+                print("💡 Suggestions:")
+                print("   - Try updating yt-dlp: pip install --upgrade yt-dlp")
+                print("   - Try a lower quality setting")
+                print("   - Check if the video actually has the requested quality")
+                if not verbose:
+                    print("   - Use -v flag to see detailed error information")
+                return False
+                
     except FileNotFoundError:
         print("❌ Error: yt-dlp not found. Please install it first:")
         print("   pip install yt-dlp")
@@ -164,12 +277,25 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="Simple YouTube Downloader (1080p+ only)",
+        description="Simple YouTube Downloader with Quality Selection",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="Examples:\n  python yt.py https://youtube.com/watch?v=VIDEO_ID\n  python yt.py -v https://youtube.com/watch?v=VIDEO_ID"
+        epilog="""Examples:
+  python yt.py https://youtube.com/watch?v=VIDEO_ID
+  python yt.py -q 1080p https://youtube.com/watch?v=VIDEO_ID
+  python yt.py --quality 4k https://youtube.com/watch?v=VIDEO_ID
+  python yt.py -q 2160 -v https://youtube.com/watch?v=VIDEO_ID
+
+Quality options:
+  1080, 1080p, fhd  → 1080p (Full HD)
+  2160, 2160p, 4k   → 2160p (4K/UHD)"""
     )
     
     parser.add_argument('url', help='YouTube URL to download')
+    parser.add_argument(
+        '-q', '--quality', 
+        default='1080p',
+        help='Video quality: 1080p, 2160p, 4k (default: 1080p)'
+    )
     parser.add_argument('-v', '--verbose', action='store_true', help='Show detailed output and format information')
     
     args = parser.parse_args()
@@ -179,7 +305,10 @@ def main():
         print("❌ Please provide a valid YouTube URL")
         sys.exit(1)
     
-    success = download_youtube_video(args.url, args.verbose)
+    # Normalize quality input
+    quality_height = normalize_quality(args.quality)
+    
+    success = download_youtube_video(args.url, quality_height, args.verbose)
     sys.exit(0 if success else 1)
 
 
